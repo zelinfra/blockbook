@@ -1403,16 +1403,82 @@ func (d *RocksDB) computeColumnSize(col int, stopCompute chan os.Signal) (int64,
 // can be very slow operation
 func (d *RocksDB) ComputeInternalStateColumnStats(stopCompute chan os.Signal) error {
 	start := time.Now()
-	glog.Info("db: ComputeInternalStateColumnStats start")
-	for c := 0; c < len(cfNames); c++ {
-		rows, keysSum, valuesSum, err := d.computeColumnSize(c, stopCompute)
-		if err != nil {
-			return err
-		}
-		d.is.SetDBColumnStats(c, rows, keysSum, valuesSum)
-		glog.Info("db: Column ", cfNames[c], ": rows ", rows, ", key bytes ", keysSum, ", value bytes ", valuesSum)
+	// glog.Info("db: ComputeInternalStateColumnStats start")
+	// for c := 0; c < len(cfNames); c++ {
+	// 	rows, keysSum, valuesSum, err := d.computeColumnSize(c, stopCompute)
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// 	d.is.SetDBColumnStats(c, rows, keysSum, valuesSum)
+	// 	glog.Info("db: Column ", cfNames[c], ": rows ", rows, ", key bytes ", keysSum, ", value bytes ", valuesSum)
+	// }
+	// glog.Info("db: ComputeInternalStateColumnStats finished in ", time.Since(start))
+	glog.Info("db: special ComputeInternalStateColumnStats start")
+	err := d.computeUtxoStats(stopCompute)
+	if err != nil {
+		return err
 	}
-	glog.Info("db: ComputeInternalStateColumnStats finished in ", time.Since(start))
+	glog.Info("db: special ComputeInternalStateColumnStats finished in ", time.Since(start))
+	return nil
+}
+
+func (d *RocksDB) computeUtxoStats(stopCompute chan os.Signal) error {
+	var rows, keysSum, valuesSum int64
+	var outputs, unspent, unspentSum, txOnlySum int64
+	var seekKey []byte
+	// do not use cache
+	ro := gorocksdb.NewDefaultReadOptions()
+	ro.SetFillCache(false)
+	packedTxidLen := d.chainParser.PackedTxidLen()
+	buffer := make([]byte, 1024)
+	for {
+		var key []byte
+		it := d.db.NewIteratorCF(ro, d.cfh[cfTxAddresses])
+		if rows == 0 {
+			it.SeekToFirst()
+		} else {
+			glog.Info("db: Column ", cfNames[cfTxAddresses], ": rows ", rows, ", key bytes ", keysSum, ", value bytes ", valuesSum, ", outputs ", outputs, ", unspent ", unspent, ", unspent bytes ", unspentSum, ", unspent txOnly bytes ", txOnlySum, ", in progress...")
+			it.Seek(seekKey)
+			it.Next()
+		}
+		for count := 0; it.Valid() && count < refreshIterator; it.Next() {
+			select {
+			case <-stopCompute:
+				return errors.New("Interrupted")
+			default:
+			}
+			key = it.Key().Data()
+			val := it.Value().Data()
+			count++
+			rows++
+			keysSum += int64(len(key))
+			valuesSum += int64(len(val))
+			txAddresses, err := unpackTxAddresses(val)
+			if err != nil {
+				return err
+			}
+			outputs += int64(len(txAddresses.Outputs))
+			for i, output := range txAddresses.Outputs {
+				if !output.Spent {
+					unspent++
+					size := packedTxidLen
+					size += packVaruint(uint(i), buffer)
+					txOnlySum += int64(size)
+					size += packBigint(&output.ValueSat, buffer)
+					size += packVaruint(uint(txAddresses.Height), buffer)
+					unspentSum += int64(size)
+				}
+			}
+		}
+		seekKey = append([]byte{}, key...)
+		valid := it.Valid()
+		it.Close()
+		if !valid {
+			break
+		}
+	}
+	glog.Info("db: Column ", cfNames[cfTxAddresses], ": rows ", rows, ", key bytes ", keysSum, ", value bytes ", valuesSum, ", outputs ", outputs, ", unspent ", unspent, ", unspent bytes ", unspentSum, ", unspent txOnly bytes ", txOnlySum)
+	glog.Info(d.is.CoinShortcut, ", ", rows, ", ", keysSum, ", ", valuesSum, ", ", outputs, ", ", unspent, ", ", unspentSum, ", ", txOnlySum)
 	return nil
 }
 
