@@ -1459,7 +1459,7 @@ func (d *RocksDB) computeUtxoStats(stopCompute chan os.Signal) error {
 			}
 			outputs += int64(len(txAddresses.Outputs))
 			for i, output := range txAddresses.Outputs {
-				if !output.Spent {
+				if !output.Spent && len(output.ValueSat.Bits()) != 0 {
 					unspent++
 					size := packedTxidLen
 					size += packVaruint(uint(i), buffer)
