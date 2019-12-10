@@ -1,8 +1,8 @@
-[![Go Report Card](https://goreportcard.com/badge/trezor/blockbook)](https://goreportcard.com/report/trezor/blockbook)
+[![Go Report Card](https://goreportcard.com/badge/zelinfra/blockbook)](https://goreportcard.com/report/zelinfra/blockbook)
 
 # Blockbook
 
-**Blockbook** is back-end service for Trezor wallet. Main features of **Blockbook** are:
+**Blockbook** ... Main features of **Blockbook** are:
 
 - index of addresses and address balances of the connected block chain
 - fast searches in the indexes
